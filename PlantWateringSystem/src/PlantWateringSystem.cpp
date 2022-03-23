@@ -227,6 +227,9 @@ void setup() {
   //  Setup water level Sensor
   fillMe = false;
  
+  //  Manual button setup
+  pinMode(BUTTONPIN, INPUT);
+
   // Setup MQTT subscription for manual water button feed.
   mqtt.subscribe(&mqttObj10);
 
@@ -348,7 +351,6 @@ void loop() {
 // Run water pump and check reservoir level
 //**************************************
   manualButton = digitalRead(BUTTONPIN);
-  Serial.printf("Button: %i\n", manualButton);
   if ((feedMe && (millis() - waterTime) > WATERTIME) || subscribeButton || manualButton) {  //  Plant is dry and it's watering time
     waterLevel = changeWaterLevel(true);                                         //  check reservoir water level and run motor
     waterTime = millis();                                                        //  Reset Watering timer
