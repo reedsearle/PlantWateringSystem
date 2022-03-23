@@ -350,10 +350,11 @@ void loop() {
 // Run water pump and check reservoir level
 //**************************************
   manualButton = digitalRead(BUTTONPIN);
-  if ((feedMe && (millis() - waterTime) > WATERTIME) || subscribeButton || manualButton) {  //  Plant is dry and it's watering time
-    waterLevel = changeWaterLevel(true);                                        //  check reservoir water level and run motor
-    feedTime   = timeOnly;                                                      //  Reset feeding time
-    waterTime  = millis();                                                      //  Reset Watering timer
+  if ((feedMe && ((millis() - waterTime) > WATERTIME)) || subscribeButton || manualButton) {  //  Plant is dry and it's watering time
+    waterLevel        = changeWaterLevel(true);                                 //  check reservoir water level and run motor
+    subscribeButton   = 0;                                                      //  Reset web button
+    feedTime          = timeOnly;                                               //  Reset feeding time
+    waterTime         = millis();                                               //  Reset Watering timer
   }
   waterLevel = changeWaterLevel(false);                                         //  check reservoir water level and Dont run motor
   fillMe = waterPixelBlink(waterLevel);                                         //  Update the water level pixel
@@ -388,7 +389,6 @@ void loop() {
       mqttObj8.publish((int)fillMe);
       mqttObj9.publish((int)feedMe);
       } 
-  Serial.printf("Feed Time: %s", feedTime.c_str());
     publishTime = millis();
   }
 
