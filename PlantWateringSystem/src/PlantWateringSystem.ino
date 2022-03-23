@@ -61,6 +61,7 @@ TCPClient TheClient;
 //****************************
   //  Time & timing Variables
   String     dateTime, timeOnly, timeOnlyOld;   
+  String     feedTime;                 //  Time of last plant feeding
   int        endTime;
   int        waterTime;
   int        publishTime;
@@ -130,7 +131,7 @@ TCPClient TheClient;
   Adafruit_MQTT_Publish    mqttObj1 = Adafruit_MQTT_Publish   (&mqtt, AIO_USERNAME "/feeds/Temp");
   Adafruit_MQTT_Publish    mqttObj2 = Adafruit_MQTT_Publish   (&mqtt, AIO_USERNAME "/feeds/Humidity");
   Adafruit_MQTT_Publish    mqttObj3 = Adafruit_MQTT_Publish   (&mqtt, AIO_USERNAME "/feeds/Pressure");
-//  Adafruit_MQTT_Publish    mqttObj4 = Adafruit_MQTT_Publish   (&mqtt, AIO_USERNAME "/feeds/Moisture");
+  Adafruit_MQTT_Publish    mqttObj4 = Adafruit_MQTT_Publish   (&mqtt, AIO_USERNAME "/feeds/FeedTime");
   Adafruit_MQTT_Publish    mqttObj5 = Adafruit_MQTT_Publish   (&mqtt, AIO_USERNAME "/feeds/WaterLevel");
   Adafruit_MQTT_Publish    mqttObj6 = Adafruit_MQTT_Publish   (&mqtt, AIO_USERNAME "/feeds/AirQuality");
   Adafruit_MQTT_Publish    mqttObj7 = Adafruit_MQTT_Publish   (&mqtt, AIO_USERNAME "/feeds/Dust");
@@ -186,6 +187,7 @@ void setup() {
   Particle.syncTime();
   dateTime    = Time.timeStr();                          //  get current value of date and time
   timeOnlyOld = dateTime.substring(11,19);               //  Extract value of time from dateTime
+  feedTime    = "Not Yet";                               //  String to send to Adafruit to declare plant has not yet been fed
 
   //  Setup Moisture Sensor
   pinMode(MOISTPIN, INPUT);                              //  Moisture pin is an input
@@ -284,7 +286,6 @@ void loop() {
   if (millis() - sampleStart > SAMPLETIME) {           //  Once the air has been samples for 30 sec
     ratio = lowPulseOccupancy / (SAMPLETIME * 10.0);   // calculate the ratio
     concentration = 1.1 * pow(ratio, 3) - 3.8 * pow(ratio, 2) +520.0 * ratio + 0.62;  //  Calculate the concentration
-    Serial.printf("LPO %i, concen %0.2f, ratio %0.2f\n", lowPulseOccupancy, concentration, ratio);
     lowPulseOccupancy = 0;                             // reset the LPO
     sampleStart = millis();                            // Reset the timer
   }
@@ -293,31 +294,30 @@ void loop() {
     currentQuality=airQualitySensor.slope();
 
     switch (currentQuality) {
-      case 0:
+      case 0:                                          //  Really Bad Air
             AQString = "**DON'T BREATHE**";
       break;
       
-      case 1:
+      case 1:                                          //   Bad Air
             AQString = " High pollution! ";
       break;
       
-      case 2:
+      case 2:                                          //  good Air
             AQString = " Low pollution!  ";
      break;
       
-      case 3:
+      case 3:                                          //  Really good Air
             AQString = "!!  Fresh air  !!";
       break;      
     }
-//    Serial.printf("%s\n", AQString.c_str());
 
 //**************************************
 // Write values to OLED coninuously
 //**************************************
 
-  if (timeOnly.compareTo(timeOnlyOld)) {               //  When the seconds change, reprint the OLED
-   write_SFFIS_ToOLED(timeOnly.c_str(), tempF, humidRH, moisture, AQString);
-   timeOnlyOld = timeOnly;                             //  reset timeOnlyOld
+  if (timeOnly.compareTo(timeOnlyOld)) {                                        //  When the seconds change, reprint the OLED
+   write_SFFIS_ToOLED(timeOnly.c_str(), tempF, humidRH, moisture, AQString);    //  Write all values to the OLED
+   timeOnlyOld = timeOnly;                                                      //  reset timeOnlyOld
   }
 
 //****************************
@@ -337,11 +337,12 @@ void loop() {
 //**************************************
   manualButton = digitalRead(BUTTONPIN);
   if ((feedMe && (millis() - waterTime) > WATERTIME) || subscribeButton || manualButton) {  //  Plant is dry and it's watering time
-    waterLevel = changeWaterLevel(true);                                         //  check reservoir water level and run motor
-    waterTime = millis();                                                        //  Reset Watering timer
+    waterLevel = changeWaterLevel(true);                                        //  check reservoir water level and run motor
+    feedTime   = timeOnly;                                                      //  Reset feeding time
+    waterTime  = millis();                                                      //  Reset Watering timer
   }
-  waterLevel = changeWaterLevel(false);                                          //  check reservoir water level and Dont run motor
-  fillMe = waterPixelBlink(waterLevel);                                          //  Update the water level pixel
+  waterLevel = changeWaterLevel(false);                                         //  check reservoir water level and Dont run motor
+  fillMe = waterPixelBlink(waterLevel);                                         //  Update the water level pixel
 
 //****************************
 // Publish and Subscribe Data
@@ -366,17 +367,14 @@ void loop() {
       mqttObj1.publish(tempF);
       mqttObj2.publish(humidRH);
       mqttObj3.publish(pressInHg);
-//      mqttObj4.publish(moisture);
+      mqttObj4.publish(feedTime);
       mqttObj5.publish(waterLevel);
       mqttObj6.publish(AQString);
       mqttObj7.publish(concentration);
       mqttObj8.publish((int)fillMe);
       mqttObj9.publish((int)feedMe);
-//      Serial.printf("Publishing %0.2f \n",value1); 
-    // Serial.printf("Moisture: %i Moisture set point %i\n",moisture, MOISTSET);
-    // Serial.printf("Feedme: %i \n",feedMe);
-    // Serial.printf("FillMe: %i \n",fillMe);
       } 
+  Serial.printf("Feed Time: %s", feedTime.c_str());
     publishTime = millis();
   }
 
@@ -429,7 +427,7 @@ void write_SFFIS_ToSD(String item1, float item2, float item3, int item4, String 
 // ********************************************************
 void write_SFFIS_ToOLED(String item1, float item2, float item3, int item4, String item5) {
     // Write to the OLED display
-    displayOne.clearDisplay();//  Clear the display before going further
+    displayOne.clearDisplay();                       //  Clear the display before going further
     displayOne.drawRect(0,0,SCREENWIDTH,SCREENHEIGHT,WHITE);
     displayOne.setCursor(7,3);
     displayOne.printf(" Time is: %s\n", item1.c_str());
@@ -441,8 +439,11 @@ void write_SFFIS_ToOLED(String item1, float item2, float item3, int item4, Strin
     displayOne.printf("Moisture: %i\n", item4);
     displayOne.setCursor(7,43);
     displayOne.printf("Air Quality: \n  %s", item5.c_str());
-    displayOne.display(); // Force display
+    displayOne.display();                            // Force display
 }
+
+
+
 
 
 //********************************************************
@@ -451,32 +452,35 @@ void write_SFFIS_ToOLED(String item1, float item2, float item3, int item4, Strin
 //********************************************************
 //********************************************************
 int changeWaterLevel (bool motorRun) {
-  const int H2OLEVELPIN  = A2;       //  Water Level Sensor on Analog Pin A2
-  const int MOTORPIN     = D8;       //  Motor relay on digital pin D8
-  const int H2OLEVELPWR  = D7;       //  Water Level Sensor Power on digital Pin D7
+  const int H2OLEVELPIN  = A2;                       //  Water Level Sensor on Analog Pin A2
+  const int MOTORPIN     = D8;                       //  Motor relay on digital pin D8
+  const int H2OLEVELPWR  = D7;                       //  Water Level Sensor Power on digital Pin D7
   int h2oLvl;
   
   //  Initialize Water level sensor
   pinMode(H2OLEVELPIN, INPUT);
   pinMode(H2OLEVELPWR, OUTPUT);
-  digitalWrite(H2OLEVELPWR, HIGH);   // Drive water level sensor power to zero to limit corrosion
+  digitalWrite(H2OLEVELPWR, HIGH);                    // Drive water level sensor power to zero to limit corrosion
  
 //  Initialize Water Pump
   pinMode(MOTORPIN, OUTPUT);
-  digitalWrite(MOTORPIN, LOW);      //  Drive motor pin low to ensure motor does not run accidentally
+  digitalWrite(MOTORPIN, LOW);                        //  Drive motor pin low to ensure motor does not run accidentally
 
 if (motorRun) {
-    digitalWrite(MOTORPIN,  HIGH);  // Turn on water pump
-    delay(500);                        //  DELAY here on purpose to PRECISELY control water delivery
-    digitalWrite(MOTORPIN,  LOW);     // Turn off water pump
+    digitalWrite(MOTORPIN,  HIGH);                    // Turn on water pump
+    delay(500);                                       //  DELAY here on purpose to PRECISELY control water delivery
+    digitalWrite(MOTORPIN,  LOW);                     // Turn off water pump
   } else {
     delay(10);
   }
-//  digitalWrite(H2OLEVELPWR, HIGH);    // Turn on water level sensor power
-  h2oLvl = analogRead(H2OLEVELPIN);      //  Read water level
-  digitalWrite(H2OLEVELPWR, LOW);     //  Turn off water levell sensor power to reduce galvanic corrosion
-  return h2oLvl;                     //  Return water level value  
+  h2oLvl = analogRead(H2OLEVELPIN);                    //  Read water level
+  digitalWrite(H2OLEVELPWR, LOW);                      //  Turn off water levell sensor power to reduce galvanic corrosion
+  return h2oLvl;                                       //  Return water level value  
 }
+
+
+
+
 
 //********************************************************
 //********************************************************
@@ -485,48 +489,22 @@ if (motorRun) {
 //********************************************************
 // Code chaged to BANG-BANG because level sensor is not accurate enough for more detail
 bool waterPixelBlink (int levelWater) {
-  bool emptyRes;    // empty reservoir flag
-  // const int HIGHWATER = 2000;
-  // const int FULLWATER = 1800;
-  // const int LOWWATER  = 1500;
-  const int REFILLWATER = 1500;
-  //  if (levelWater < 2000) {                         //  water level empty
-  //   bright = callSin (127, 127, 1000);              //  Set brightness to flash at 1S interval
-  //   waterPixel.setPixelColor(0,bright,0,0);         //  Set pixel color RED
-  // } if (levelWater < 2150 && levelWater >= 2000) {  //  water level empty
-  //   bright = callSin (63, 63, 3000);                //  Set brightness to flash at 5S interval
-  //   waterPixel.setPixelColor(0,bright,bright,0);    //  Set pixel color YELLOW
-  // } if (levelWater < 2500 && levelWater >= 2150) {  //  water level empty
-  //   bright = callSin (31, 31, 10000);               //  Set brightness to flash at 10S interval
-  //   waterPixel.setPixelColor(0,0,bright,0);         //  Set pixel color GREEN
-  // } if (levelWater > 2500) {                        //  water level full
-  //   waterPixel.setPixelColor(0,0,63,0);             //  Set pixel color GREEN
-  // }
-   if (levelWater < REFILLWATER) {                         //  water level empty
-    waterPixel.setPixelColor(0,255,0,0);         //  Set pixel color RED
-    emptyRes = true;
-  } else if (levelWater > REFILLWATER) {                        //  water level full
-    waterPixel.setPixelColor(0,0,63,0);             //  Set pixel color GREEN
-    emptyRes = false;
+  bool emptyRes;                                       // empty reservoir flag
+  const int REFILLWATER = 1000;
+
+   if (levelWater < REFILLWATER) {                     //  water level empty
+    waterPixel.setPixelColor(0,255,0,0);               //  Set pixel color RED
+    emptyRes = true;                                   //  Set Empty reservoir flag
+  } else if (levelWater > REFILLWATER) {               //  water level full
+    waterPixel.setPixelColor(0,0,63,0);                //  Set pixel color GREEN
+    emptyRes = false;                                  //  clear Empty reservoir flag
   }
-    waterPixel.show();
+    waterPixel.show();                                 //  Force pixels
     return emptyRes;
 }
 
-//********************************************************
-//********************************************************
-//      callSin
-//********************************************************
-//********************************************************
-float callSin(int amp, int deltaAmp, int period) {
-  float sinWave;
-  float t;
 
-  t = millis();
 
-  sinWave = amp * sin(2 * M_PI * t / period) + deltaAmp;
-  return sinWave;
-}
 
 //********************************************************
 //********************************************************
