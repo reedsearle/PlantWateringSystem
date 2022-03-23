@@ -145,7 +145,7 @@ TCPClient TheClient;
   Adafruit_MQTT_Publish    mqttObj1 = Adafruit_MQTT_Publish   (&mqtt, AIO_USERNAME "/feeds/Temp");
   Adafruit_MQTT_Publish    mqttObj2 = Adafruit_MQTT_Publish   (&mqtt, AIO_USERNAME "/feeds/Humidity");
   Adafruit_MQTT_Publish    mqttObj3 = Adafruit_MQTT_Publish   (&mqtt, AIO_USERNAME "/feeds/Pressure");
-  Adafruit_MQTT_Publish    mqttObj4 = Adafruit_MQTT_Publish   (&mqtt, AIO_USERNAME "/feeds/Moisture");
+//  Adafruit_MQTT_Publish    mqttObj4 = Adafruit_MQTT_Publish   (&mqtt, AIO_USERNAME "/feeds/Moisture");
   Adafruit_MQTT_Publish    mqttObj5 = Adafruit_MQTT_Publish   (&mqtt, AIO_USERNAME "/feeds/WaterLevel");
   Adafruit_MQTT_Publish    mqttObj6 = Adafruit_MQTT_Publish   (&mqtt, AIO_USERNAME "/feeds/AirQuality");
   Adafruit_MQTT_Publish    mqttObj7 = Adafruit_MQTT_Publish   (&mqtt, AIO_USERNAME "/feeds/Dust");
@@ -347,9 +347,8 @@ void loop() {
 //**************************************
 // Run water pump and check reservoir level
 //**************************************
-//    Serial.printf("Moisture: %i Moisture set point %i\n",moisture, MOISTSET);
   manualButton = digitalRead(BUTTONPIN);
-
+  Serial.printf("Button: %i\n", manualButton);
   if ((feedMe && (millis() - waterTime) > WATERTIME) || subscribeButton || manualButton) {  //  Plant is dry and it's watering time
     waterLevel = changeWaterLevel(true);                                         //  check reservoir water level and run motor
     waterTime = millis();                                                        //  Reset Watering timer
@@ -380,13 +379,16 @@ void loop() {
       mqttObj1.publish(tempF);
       mqttObj2.publish(humidRH);
       mqttObj3.publish(pressInHg);
-      mqttObj4.publish(moisture);
+//      mqttObj4.publish(moisture);
       mqttObj5.publish(waterLevel);
       mqttObj6.publish(AQString);
       mqttObj7.publish(concentration);
-      mqttObj8.publish(fillMe);
-      mqttObj8.publish(feedMe);
+      mqttObj8.publish((int)fillMe);
+      mqttObj9.publish((int)feedMe);
 //      Serial.printf("Publishing %0.2f \n",value1); 
+    // Serial.printf("Moisture: %i Moisture set point %i\n",moisture, MOISTSET);
+    // Serial.printf("Feedme: %i \n",feedMe);
+    // Serial.printf("FillMe: %i \n",fillMe);
       } 
     publishTime = millis();
   }
