@@ -3,7 +3,7 @@
 /******************************************************/
 
 #include "Particle.h"
-#line 1 "c:/Users/reed_/Documents/IoT/PredictivePlantWatering/PlantWateringSystem/src/PlantWateringSystem.ino"
+#line 1 "c:/Users/reed_/Documents/IoT/PlantWateringSystem/PlantWateringSystem/src/PlantWateringSystem.ino"
 /*
  * Project      Plant Watering System
  * Description: Maintain moisture level in a plant and measure environmental variables
@@ -38,7 +38,7 @@ int changeWaterLevel (bool motorRun);
 bool waterPixelBlink (int levelWater);
 float callSin(int amp, int deltaAmp, int period);
 void MQTT_connect();
-#line 27 "c:/Users/reed_/Documents/IoT/PredictivePlantWatering/PlantWateringSystem/src/PlantWateringSystem.ino"
+#line 27 "c:/Users/reed_/Documents/IoT/PlantWateringSystem/PlantWateringSystem/src/PlantWateringSystem.ino"
 TCPClient TheClient; 
 
 //****************************
@@ -53,7 +53,7 @@ TCPClient TheClient;
   // const int H2OLEVELPWR  = D7;       //  Water Level Sensor Power on digital Pin D7
   const int PIXELPIN     = D6;       //  First NeoPixel on pin D6
   const int DUSTPIN      = D5;       //  Dust sensor on digital Pin D5
-  const int BUTTONPin    = D4;       //  Button on digital Pin D4
+  const int BUTTONPIN    = D4;       //  Button on digital Pin D4
  
   //  I2C Addresses
   byte      OLEDADDRESS  = 0x3C;     //  Address of the OLED on the IIC bus
@@ -94,20 +94,18 @@ TCPClient TheClient;
 
   // Moisture Sensor Variables 
   int        moisture;
+  bool       feedMe;                    //  Boolean for Publish to indicate through Adafruit that the plant needs water
 
   //  uSD Card Variables
   File       testFile;                  //  **** Change this after unit testing
 
   //  Water Level variables
   int        waterLevel;                //  Input from water level sensor
-  //int        bright;
-  bool       feedMe;                    //  Boolean to Zapier to indicate reservoir is almost empty
+  bool       fillMe;                    //  Boolean to Zapier to indicate reservoir is almost empty
 
   //  Dust Sensor variables
   unsigned int duration;                 // duration that the sensor pin is low during a given sample - uS
-  unsigned int duration1;                 // duration that the sensor pin is low during a given sample - uS
-  int        lowPulseOccupancy;        // Duration the pin is low for the sample time of 30 sec - uS
-  int        lowPulseOccupancy1;        // Duration the pin is low for the sample time of 30 sec - uS
+  int          lowPulseOccupancy;        // Duration the pin is low for the sample time of 30 sec - uS
   float        ratio;                    // Ration of LPO time to total time
   float        concentration;            // Concentration of dut in sample
   bool         dustFlag;                 // Flag for pulse start
@@ -121,9 +119,11 @@ TCPClient TheClient;
   String     AQString;
 
   //  Subscribe variables
-  int        manualButton;
-  //?? TEST CODE
-  int codeTime;
+  int        subBut;                     //  Temporary integer holder for value from subscribe
+  bool       subscribeButton;            //  Boolean for water button on Adafruit
+
+  //  Manual button variables
+  bool       manualButton;            //  Boolean for water button on Adafruit
 
 
 //****************************
@@ -149,9 +149,10 @@ TCPClient TheClient;
   Adafruit_MQTT_Publish    mqttObj5 = Adafruit_MQTT_Publish   (&mqtt, AIO_USERNAME "/feeds/WaterLevel");
   Adafruit_MQTT_Publish    mqttObj6 = Adafruit_MQTT_Publish   (&mqtt, AIO_USERNAME "/feeds/AirQuality");
   Adafruit_MQTT_Publish    mqttObj7 = Adafruit_MQTT_Publish   (&mqtt, AIO_USERNAME "/feeds/Dust");
-  Adafruit_MQTT_Publish    mqttObj8 = Adafruit_MQTT_Publish   (&mqtt, AIO_USERNAME "/feeds/FeedMe");
+  Adafruit_MQTT_Publish    mqttObj8 = Adafruit_MQTT_Publish   (&mqtt, AIO_USERNAME "/feeds/FillMe");
+  Adafruit_MQTT_Publish    mqttObj9 = Adafruit_MQTT_Publish   (&mqtt, AIO_USERNAME "/feeds/FeedMe");
 
-  Adafruit_MQTT_Subscribe  mqttObj9 = Adafruit_MQTT_Subscribe (&mqtt, AIO_USERNAME "/feeds/Water");
+  Adafruit_MQTT_Subscribe  mqttObj10 = Adafruit_MQTT_Subscribe (&mqtt, AIO_USERNAME "/feeds/Water");
 
   
 //********************************************************
@@ -203,6 +204,7 @@ void setup() {
 
   //  Setup Moisture Sensor
   pinMode(MOISTPIN, INPUT);                              //  Moisture pin is an input
+  feedMe = false;
   
   //  Setup OLED
   displayOne.begin(SSD1306_SWITCHCAPVCC, OLEDADDRESS);   // initialize with the I2C addr above
@@ -223,10 +225,10 @@ void setup() {
   airQualitySensor.init();
 
   //  Setup water level Sensor
-  feedMe = false;
+  fillMe = false;
  
   // Setup MQTT subscription for manual water button feed.
-  mqtt.subscribe(&mqttObj9);
+  mqtt.subscribe(&mqttObj10);
 
 
 
@@ -242,8 +244,6 @@ void setup() {
 //********************************************************
 //********************************************************
 void loop() {
-codeTime = micros();
-
 
 //****************************
 // Get Environmental Data
@@ -264,6 +264,11 @@ codeTime = micros();
 
   //  Get current moisture levels
   moisture = analogRead(MOISTPIN);
+  if (moisture > MOISTSET) {                         //  Plant is dry 
+    feedMe = true;
+  } else {                                           //  Plant is moist
+    feedMe = false;
+  }
 
   //  Get current Dust levels
   //  The following 2 WHILE statements replace a PULSEIN() statement to allow for a quicker timeout
@@ -322,14 +327,15 @@ codeTime = micros();
 // Write values to OLED coninuously
 //**************************************
 
-  if (timeOnly.compareTo(timeOnlyOld)) {  //  When the seconds change, reprint the OLED
+  if (timeOnly.compareTo(timeOnlyOld)) {               //  When the seconds change, reprint the OLED
    write_SFFIS_ToOLED(timeOnly.c_str(), tempF, humidRH, moisture, AQString);
-   timeOnlyOld = timeOnly;                //  reset timeOnlyOld
+   timeOnlyOld = timeOnly;                             //  reset timeOnlyOld
   }
 
 //****************************
 // Write values to uSD Card
 //****************************
+//  Commented out for debug.  this code has been tested good
   // //  SAMPLE DATA once per minute
   // if (millis() - endTime > SAMPLETIME) {
   //   //  Write to the uSD card
@@ -342,14 +348,14 @@ codeTime = micros();
 // Run water pump and check reservoir level
 //**************************************
 //    Serial.printf("Moisture: %i Moisture set point %i\n",moisture, MOISTSET);
+  manualButton = digitalRead(BUTTONPIN);
 
-  if ((moisture > MOISTSET && (millis() - waterTime) > WATERTIME) || manualButton == 1) {  //  Plant is dry and it's watering time
-    waterLevel = changeWaterLevel(true);  //  run motor and check reservoir water level
-//    Serial.printf("Water level: %i \n",waterLevel);
+  if ((feedMe && (millis() - waterTime) > WATERTIME) || subscribeButton || manualButton) {  //  Plant is dry and it's watering time
+    waterLevel = changeWaterLevel(true);                                         //  check reservoir water level and run motor
+    waterTime = millis();                                                        //  Reset Watering timer
   }
-  waterLevel = changeWaterLevel(false);  //  Dont run motor and check reservoir water level
-  feedMe = waterPixelBlink(waterLevel);                                          //  Update the water level pixel
-// Serial.printf("Water Level %i \n", waterLevel);
+  waterLevel = changeWaterLevel(false);                                          //  check reservoir water level and Dont run motor
+  fillMe = waterPixelBlink(waterLevel);                                          //  Update the water level pixel
 
 //****************************
 // Publish and Subscribe Data
@@ -378,6 +384,7 @@ codeTime = micros();
       mqttObj5.publish(waterLevel);
       mqttObj6.publish(AQString);
       mqttObj7.publish(concentration);
+      mqttObj8.publish(fillMe);
       mqttObj8.publish(feedMe);
 //      Serial.printf("Publishing %0.2f \n",value1); 
       } 
@@ -387,9 +394,14 @@ codeTime = micros();
   // this is our 'wait for incoming subscription packets' busy subloop
   Adafruit_MQTT_Subscribe *subscription;
   while ((subscription = mqtt.readSubscription(10))) {
-    if (subscription == &mqttObj9) {
-      manualButton = atoi((char *)mqttObj9.lastread);
-      Serial.printf("Received %i from Adafruit.io feed Water \n",manualButton);
+    if (subscription == &mqttObj10) {
+      subBut = atoi((char *)mqttObj10.lastread);
+      Serial.printf("Received %i from Adafruit.io feed Water \n",subscribeButton);
+      if (subBut == 1) {
+        subscribeButton = true;
+      } else {
+        subscribeButton = false;      
+      }
     }
   }
 }
